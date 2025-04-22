@@ -1,0 +1,32 @@
+  # Copyright (c) 2025, yasaisen(clover).
+  # All rights reserved.
+  # 
+  # last modified in 2504221440
+
+model:
+  model_name: "vit_large_patch14_reg4_dinov2.lvd142m" # 518
+  # model_name: "IMAGENET1K_V2" # 288
+  num_classes: 3
+
+dataset:
+  train_path: "dataset/2504171442_PatchCamelyon_v2/train"
+  valid_path: "dataset/2504171442_PatchCamelyon_v2/test"
+  img_processor: 
+    macenko_nor: False
+
+task:
+  root_path: "/work/misaka13"
+  num_epoch: 30
+  batch_size: 200
+
+  max_norm: 1.0
+  smoothing: 0.15
+  learning_rate: 1e-3
+  weight_decay: 1e-4
+  max_lr: 1e-3
+  pct_start: 0.2
+  anneal_strategy: "cos"
+
+  device: "cuda"
+  output_path: "R27_MVLM/outputs"
+

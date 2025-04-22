@@ -9,8 +9,8 @@ model:
   num_classes: 3
 
 dataset:
-  train_path: "dataset/2504171442_PatchCamelyon_v2/train"
-  valid_path: "dataset/2504171442_PatchCamelyon_v2/test"
+  train_path: "2504171442_PatchCamelyon_v2/train"
+  valid_path: "2504171442_PatchCamelyon_v2/test"
   img_processor: 
     macenko_nor: False
 

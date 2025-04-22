@@ -89,7 +89,7 @@ class ConfigHandler:
         parser.add_argument("--cfg-path", required=True)
         args = parser.parse_args()
 
-        with open(args.cfg_path, 'r') as file:
+        with open(os.path.join(os.getcwd(), args.cfg_path), 'r') as file:
             cfg = yaml.safe_load(file)
 
         cfg_handler = cls(

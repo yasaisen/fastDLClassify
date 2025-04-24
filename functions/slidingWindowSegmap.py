@@ -13,6 +13,7 @@ import math
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.colors import ListedColormap
+from skimage import morphology
 
 from ..common.utils import log_print, highlight, highlight_show
 from ..processors.img_processor import ImgProcessor
@@ -84,12 +85,14 @@ def sliding_window_detection(
     image_path: str, 
     window_size:int =48, 
     min_overlap:int =24, 
+    confidence_threshold:float =0.5,
     device='cuda'
 ):
     image = Image.open(image_path).convert('RGB')
     image_np = np.array(image)
     height, width, _ = image_np.shape
     segmentation_map = np.zeros((height, width), dtype=np.uint8)
+    confidence_map = np.zeros((height, width), dtype=np.float32)
     
     transform = ImgProcessor(img_size=window_size, macenko_nor=False, device=device)
     window_positions = calculate_window_positions(width, height, window_size, min_overlap)
@@ -116,21 +119,27 @@ def sliding_window_detection(
             
         confidence, predicted_class = torch.max(probabilities, 0)
         confidence = confidence.item()
-        predicted_class = predicted_class.item() + 1
+        predicted_class = predicted_class.item()
+        if confidence >= confidence_threshold:
+            final_class = predicted_class + 1
+        else:
+            final_class = 0
+
         window_predictions.append({
             'x': x,
             'y': y,
             'width': actual_width,
             'height': actual_height,
-            'predicted_class': predicted_class,
+            'predicted_class': final_class,
             'confidence': confidence
         })
         
         for i in range(y, end_y):
             for j in range(x, end_x):
-                segmentation_map[i, j] = predicted_class
+                segmentation_map[i, j] = final_class
+                confidence_map[i, j] = confidence
     
-    return image_np, segmentation_map, window_predictions
+    return image_np, segmentation_map, confidence_map, window_predictions
 
 def visualize_results(
     image, 
@@ -192,7 +201,18 @@ def visualize_results(
     plt.tight_layout()
     plt.show()
 
+def get_bin_seg_map(seg_map):
+    only_result = np.zeros(seg_map.shape, dtype=np.uint8)
+    only_result[seg_map == 1] = 1
+    only_result[seg_map == 2] = 1
 
+    only_result = morphology.remove_small_holes(only_result, 8888)
+    only_result = morphology.remove_small_objects(only_result, 88888)
+
+    bin_seg_map = np.zeros(seg_map.shape, dtype=np.uint8)
+    bin_seg_map[only_result == True] = 1
+
+    return bin_seg_map
 
 
 

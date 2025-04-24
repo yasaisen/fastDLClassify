@@ -4,8 +4,8 @@
   # last modified in 2504221440
 
 model:
-  model_name: "vit_large_patch14_reg4_dinov2.lvd142m" # 518
-  # model_name: "IMAGENET1K_V2" # 288
+  # model_name: "vit_large_patch14_reg4_dinov2.lvd142m" # 518
+  model_name: "IMAGENET1K_V2" # 288
   num_classes: 3
 
 dataset:
@@ -17,7 +17,7 @@ dataset:
 task:
   root_path: ""
   num_epoch: 30
-  batch_size: 200
+  batch_size: 800
 
   max_norm: 1.0
   smoothing: 0.15

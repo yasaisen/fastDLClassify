@@ -7,8 +7,8 @@ model:
   model_path: "outputs/2504230120/2504230120_best_model.pth"
 
 dataset:
-  image_root: "research_datasets/cleanPCset_v1/quilt_1m/images"
-  mata_path: "research_datasets/cleanPCset_v1/quilt_1m/quilt_1M_lookup.csv"
+  image_root: "/home/yasaisen/Desktop/27_research/research_datasets/cleanPCset_v1/quilt_1m/images"
+  mata_path: "/home/yasaisen/Desktop/27_research/research_datasets/cleanPCset_v1/quilt_1m/quilt_1M_lookup.csv"
 
 process: 
   sliding_window_detection: 

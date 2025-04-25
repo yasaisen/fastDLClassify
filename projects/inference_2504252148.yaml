@@ -1,0 +1,46 @@
+  # Copyright (c) 2025, yasaisen(clover).
+  # All rights reserved.
+  # 
+  # last modified in 2504252152
+
+model:
+  model_path: "outputs/2504230120/2504230120_best_model.pth"
+
+dataset:
+  image_root: "research_datasets/cleanPCset_v1/quilt_1m/images"
+  mata_path: "research_datasets/cleanPCset_v1/quilt_1m/quilt_1M_lookup.csv"
+
+process: 
+  sliding_window_detection: 
+    window_size: 48
+    min_overlap: 24
+    conf_thr: 0.05
+  
+  region_adjacency_graph_l1:
+    n_segments: 80
+    
+  remove_border_l1:
+    mask_ratio: 0.75
+    
+  mask_otherRect_byArea:
+    MaskRect_ratio_thr: 0.75
+    LocalgGobal_ratio_thr: 0.50
+    area_ratio_thr: 0.8
+    
+  region_adjacency_graph_l2:
+    n_segments: 30
+    
+  remove_border_l2:
+    mask_ratio: 0.75
+
+  mask_otherRect_byPoint:
+    MaskRect_ratio_thr: 0.75
+    LocalgGobal_ratio_thr: 0.50
+
+task:
+  root_path: ""
+
+  device: "cuda"
+  output_path: "outputs"
+
+

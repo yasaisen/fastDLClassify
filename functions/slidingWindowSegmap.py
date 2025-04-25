@@ -87,7 +87,7 @@ def sliding_window_detection(
     image_path: str, 
     window_size:int =48, 
     min_overlap:int =24, 
-    confidence_threshold:float =0.5,
+    conf_thr:float =0.5,
     device='cuda'
 ):
     image = Image.open(image_path).convert('RGB')
@@ -122,7 +122,7 @@ def sliding_window_detection(
         confidence, predicted_class = torch.max(probabilities, 0)
         confidence = confidence.item()
         predicted_class = predicted_class.item()
-        if confidence >= confidence_threshold:
+        if confidence >= conf_thr:
             final_class = predicted_class + 1
         else:
             final_class = 0
@@ -367,6 +367,185 @@ def remove_border(
     class_map = class_map[top:bottom+1, left:right+1]
     
     return cropped_image, cropped_mask, class_map
+
+class imgCleaner():
+    def __init__(self,
+        model_path:str,
+        SWD_window_size:int = 48,
+        SWD_min_overlap:int = 24,
+        SWD_conf_thr:float = 0.05,
+        RAGl1_n_segments:int = 80,
+        RBl1_mask_ratio:float = 0.75,
+        MOA_MaskRect_ratio_thr:float = 0.75,
+        MOA_LocalgGobal_ratio_thr:float = 0.50,
+        MOA_area_ratio_thr:float = 0.8,
+        RAGl2_n_segments:int = 30,
+        RBl2_mask_ratio:float = 0.75,
+        MOP_MaskRect_ratio_thr:float = 0.75,
+        MOP_LocalgGobal_ratio_thr:float = 0.50,
+        device:str = "cuda",
+    ):
+        self.state_name = 'imgCleaner'
+        self.device = device
+        print()
+        log_print(self.state_name, f"Building...")
+
+        model = load_model(
+            model_path=model_path
+        )
+        self.model = model.to(self.device)
+        self.SWD_window_size = SWD_window_size
+        self.SWD_min_overlap = SWD_min_overlap
+        self.SWD_conf_thr = SWD_conf_thr
+        self.RAGl1_n_segments = RAGl1_n_segments
+        self.RBl1_mask_ratio = RBl1_mask_ratio
+        self.MOA_MaskRect_ratio_thr = MOA_MaskRect_ratio_thr
+        self.MOA_LocalgGobal_ratio_thr = MOA_LocalgGobal_ratio_thr
+        self.MOA_area_ratio_thr = MOA_area_ratio_thr
+        self.RAGl2_n_segments = RAGl2_n_segments
+        self.RBl2_mask_ratio = RBl2_mask_ratio
+        self.MOP_MaskRect_ratio_thr = MOP_MaskRect_ratio_thr
+        self.MOP_LocalgGobal_ratio_thr = MOP_LocalgGobal_ratio_thr
+
+        log_print(self.state_name, f"...Done\n")
+
+    def __call__(self,
+        image_path:str,
+    ):
+        image_v0, segmentation_map, _, _ = sliding_window_detection(
+            model=self.model, 
+            image_path=image_path, 
+            window_size=self.SWD_window_size, 
+            min_overlap=self.SWD_min_overlap, 
+            conf_thr=self.SWD_conf_thr, 
+            device=self.device
+        )
+        seg_map_v0 = get_bin_seg_map(
+            seg_map=segmentation_map
+        )
+        cropped_image_v1, cropped_mask_v1 = crop_binary_array(
+            image_array=image_v0,
+            binary_mask=seg_map_v0,
+        )
+        
+        _, class_map_v1 = region_adjacency_graph(
+            image=cropped_image_v1, 
+            n_segments=self.RAGl1_n_segments
+        )
+        cropped_image_v2, cropped_mask_v2, class_map_v2 = remove_border(
+            image=cropped_image_v1, 
+            mask=cropped_mask_v1, 
+            class_map=class_map_v1,
+            mask_ratio=self.RBl1_mask_ratio
+        )
+
+        masked_v2 = mask_otherRect_byArea(
+            image=cropped_image_v2, 
+            mask=cropped_mask_v2,
+            class_map=class_map_v2,
+            MaskRect_ratio_thr=self.MOA_MaskRect_ratio_thr,
+            LocalgGobal_ratio_thr=self.MOA_LocalgGobal_ratio_thr,
+            area_ratio_thr=self.MOA_area_ratio_thr,
+            # color=(255, 0, 0)
+        )
+
+        _, class_map_v2 = region_adjacency_graph(
+            image=masked_v2, 
+            n_segments=self.RAGl2_n_segments
+        )
+        cropped_masked_v3, cropped_mask_v3, class_map_v3 = remove_border(
+            image=masked_v2, 
+            mask=cropped_mask_v2, 
+            class_map=class_map_v2,
+            mask_ratio=self.RBl2_mask_ratio
+        )
+
+        masked_v3 = mask_otherRect_byPoint(
+            image=cropped_masked_v3, 
+            mask=cropped_mask_v3,
+            class_map=class_map_v3,
+            MaskRect_ratio_thr=self.MOP_MaskRect_ratio_thr,
+            LocalgGobal_ratio_thr=self.MOP_LocalgGobal_ratio_thr,
+            # color=(0, 255, 0)
+        )
+
+        return masked_v3
+
+    @classmethod
+    def from_config(cls, 
+        cfg, 
+    ):
+        if cfg.get("task") is not None:
+            task_cfg = cfg['task']
+            device = str(task_cfg.get("device"))
+
+        if cfg.get("model") is not None:
+            model_cfg = cfg['model']
+            model_path = str(model_cfg.get("model_path"))
+
+
+        if cfg['process'].get("sliding_window_detection") is not None:
+            SWD_cfg = cfg['process']['sliding_window_detection']
+            SWD_window_size = int(SWD_cfg.get("window_size"))
+            SWD_min_overlap = int(SWD_cfg.get("min_overlap"))
+            SWD_conf_thr = float(SWD_cfg.get("conf_thr"))
+
+        if cfg['process'].get("region_adjacency_graph_l1") is not None:
+            RAGl1_cfg = cfg['process']['region_adjacency_graph_l1']
+            RAGl1_n_segments = int(RAGl1_cfg.get("n_segments"))
+
+        if cfg['process'].get("remove_border_l1") is not None:
+            RBl1_cfg = cfg['process']['remove_border_l1']
+            RBl1_mask_ratio = float(RBl1_cfg.get("mask_ratio"))
+
+
+        if cfg['process'].get("mask_otherRect_byArea") is not None:
+            MOA_cfg = cfg['process']['mask_otherRect_byArea']
+            MOA_MaskRect_ratio_thr = float(MOA_cfg.get("MaskRect_ratio_thr"))
+            MOA_LocalgGobal_ratio_thr = float(MOA_cfg.get("LocalgGobal_ratio_thr"))
+            MOA_area_ratio_thr = float(MOA_cfg.get("area_ratio_thr"))
+
+
+        if cfg['process'].get("region_adjacency_graph_l2") is not None:
+            RAGl2_cfg = cfg['process']['region_adjacency_graph_l2']
+            RAGl2_n_segments = int(RAGl2_cfg.get("n_segments"))
+
+        if cfg['process'].get("remove_border_l2") is not None:
+            RBl2_cfg = cfg['process']['remove_border_l2']
+            RBl2_mask_ratio = float(RBl2_cfg.get("mask_ratio"))
+
+
+        if cfg['process'].get("mask_otherRect_byPoint") is not None:
+            MOP_cfg = cfg['process']['mask_otherRect_byPoint']
+            MOP_MaskRect_ratio_thr = float(MOP_cfg.get("MaskRect_ratio_thr"))
+            MOP_LocalgGobal_ratio_thr = float(MOP_cfg.get("LocalgGobal_ratio_thr"))
+
+
+        cleaner = cls(
+            model_path=model_path,
+            SWD_window_size=SWD_window_size,
+            SWD_min_overlap=SWD_min_overlap,
+            SWD_conf_thr=SWD_conf_thr,
+            RAGl1_n_segments=RAGl1_n_segments,
+            RBl1_mask_ratio=RBl1_mask_ratio,
+            MOA_MaskRect_ratio_thr=MOA_MaskRect_ratio_thr,
+            MOA_LocalgGobal_ratio_thr=MOA_LocalgGobal_ratio_thr,
+            MOA_area_ratio_thr=MOA_area_ratio_thr,
+            RAGl2_n_segments=RAGl2_n_segments,
+            RBl2_mask_ratio=RBl2_mask_ratio,
+            MOP_MaskRect_ratio_thr=MOP_MaskRect_ratio_thr,
+            MOP_LocalgGobal_ratio_thr=MOP_LocalgGobal_ratio_thr,
+            device=device,
+        )
+        return cleaner
+
+
+
+
+
+
+
+
 
 
 

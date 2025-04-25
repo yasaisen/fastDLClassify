@@ -14,6 +14,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.colors import ListedColormap
 from skimage import morphology
+from skimage import segmentation, color, graph
+import cv2
 
 from ..common.utils import log_print, highlight, highlight_show
 from ..processors.img_processor import ImgProcessor
@@ -111,7 +113,7 @@ def sliding_window_detection(
         if actual_width != window_size or actual_height != window_size:
             window = window.resize((window_size, window_size))
         
-        input_tensor = transform(window).unsqueeze(0).to(device)
+        input_tensor = transform.testing(window).unsqueeze(0).to(device)
         
         with torch.no_grad():
             outputs = model(input_tensor)
@@ -213,6 +215,159 @@ def get_bin_seg_map(seg_map):
     bin_seg_map[only_result == True] = 1
 
     return bin_seg_map
+
+def crop_binary_array(image_array, binary_mask):
+    rows, cols = np.where(binary_mask == 1)
+    if len(rows) == 0:
+        return image_array, binary_mask
+    
+    min_row, max_row = np.min(rows), np.max(rows)
+    min_col, max_col = np.min(cols), np.max(cols)
+    
+    cropped_image = image_array[min_row:max_row+1, min_col:max_col+1]
+    cropped_mask = binary_mask[min_row:max_row+1, min_col:max_col+1]
+    return cropped_image, cropped_mask
+
+def _weight_mean_color(graph, src, dst, n):
+    diff = graph.nodes[dst]['mean color'] - graph.nodes[n]['mean color']
+    diff = np.linalg.norm(diff)
+    return {'weight': diff}
+
+def merge_mean_color(graph, src, dst):
+    graph.nodes[dst]['total color'] += graph.nodes[src]['total color']
+    graph.nodes[dst]['pixel count'] += graph.nodes[src]['pixel count']
+    graph.nodes[dst]['mean color'] = (
+        graph.nodes[dst]['total color'] / graph.nodes[dst]['pixel count']
+    )
+
+def region_adjacency_graph(
+    image:np.ndarray,
+    n_segments:int=80
+):
+    labels = segmentation.slic(image, compactness=30, n_segments=n_segments, start_label=1)
+    g = graph.rag_mean_color(image, labels)
+
+    labels2 = graph.merge_hierarchical(
+        labels,
+        g,
+        thresh=35,
+        rag_copy=False,
+        in_place_merge=True,
+        merge_func=merge_mean_color,
+        weight_func=_weight_mean_color,
+    )
+    out = color.label2rgb(labels2, image, kind='avg', bg_label=0)
+    # out = segmentation.mark_boundaries(out, labels2, (0, 0, 0))
+
+    return out, labels2
+
+def mask_otherRect_byPoint(
+    image:np.ndarray,
+    mask:np.ndarray,
+    class_map:np.ndarray,
+    MaskRect_ratio_thr:float=0.75,
+    LocalgGobal_ratio_thr:float=0.50,
+    color=(255, 255, 255)
+):
+    result = image.copy()
+    mask_global_count = np.sum(np.isin(mask, 1))
+    for pixel_idx in np.unique(class_map).tolist():
+        single_class = np.zeros(class_map.shape, dtype=np.uint8)
+        single_class[class_map == pixel_idx] = 1
+        
+        contours, _ = cv2.findContours(single_class, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for contour in contours:
+            perimeter = cv2.arcLength(contour, True)
+            approx = cv2.approxPolyDP(contour, 0.002 * perimeter, False)
+
+            if 4 <= len(approx) <= 6:
+                x, y, w, h = cv2.boundingRect(approx)
+
+                cropped_mask = mask[y:y+h+1, x:x+w+1]
+                mask_local_count = np.sum(np.isin(cropped_mask, 1))
+                MaskRect_ratio = mask_local_count / float(w * h)
+                LocalgGobal_ratio = mask_local_count / mask_global_count
+                if MaskRect_ratio >= MaskRect_ratio_thr or LocalgGobal_ratio >= LocalgGobal_ratio_thr:
+                    continue
+            
+                area_ratio = cv2.contourArea(contour) / (w * h)
+                if area_ratio > 0.8:
+                    cv2.rectangle(result, (x, y), (x+w, y+h), color, -1)
+    return result
+
+def mask_otherRect_byArea(
+    image:np.ndarray,
+    mask:np.ndarray,
+    class_map:np.ndarray,
+    area_ratio_thr:float=0.8,
+    MaskRect_ratio_thr:float=0.75,
+    LocalgGobal_ratio_thr:float=0.50,
+    color=(255, 255, 255)
+):
+    result = image.copy()
+    mask_global_count = np.sum(np.isin(mask, 1))
+    for pixel_idx in np.unique(class_map).tolist():
+        single_class = np.zeros(class_map.shape, dtype=np.uint8)
+        single_class[class_map == pixel_idx] = 1
+        
+        contours, _ = cv2.findContours(single_class, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for cnt in contours:
+            x, y, w, h = cv2.boundingRect(cnt)
+            if w == 0 or h == 0:
+                continue
+            
+            cropped_mask = mask[y:y+h+1, x:x+w+1]
+            mask_local_count = np.sum(np.isin(cropped_mask, 1))
+            MaskRect_ratio = mask_local_count / float(w * h)
+            LocalgGobal_ratio = mask_local_count / mask_global_count
+            if MaskRect_ratio >= MaskRect_ratio_thr or LocalgGobal_ratio >= LocalgGobal_ratio_thr:
+                continue
+
+            area_ratio = cv2.contourArea(cnt) / float(w * h)
+            if area_ratio > area_ratio_thr and not (w == image.shape[1] and h == image.shape[0]):
+                cv2.rectangle(result, (x, y), (x + w, y + h), color, -1)
+    return result
+
+import numpy as np
+
+def remove_border(
+    image:np.ndarray,
+    mask:np.ndarray,
+    class_map:np.ndarray,
+    mask_ratio:float=0.5
+):
+    if class_map.size == 0:
+        return image, mask, class_map
+    h, w = class_map.shape
+    
+    non_uniform_rows = []
+    for i in range(h):
+        row = class_map[i]
+        mask_row = mask[i]
+        if (not np.all(row == row[0])) or float(np.sum(np.isin(mask_row, 1))) / len(mask_row.tolist()) > mask_ratio:
+            non_uniform_rows.append(i)
+    
+    non_uniform_cols = []
+    for j in range(w):
+        col = class_map[:, j]
+        mask_col = mask[:, j]
+        if (not np.all(col == col[0])) or float(np.sum(np.isin(mask_col, 1))) / len(mask_col.tolist()) > mask_ratio:
+            non_uniform_cols.append(j)
+    
+    if not non_uniform_rows or not non_uniform_cols:
+        return image, mask, class_map
+    
+    top = min(non_uniform_rows)
+    bottom = max(non_uniform_rows)
+    left = min(non_uniform_cols)
+    right = max(non_uniform_cols)
+
+    cropped_image = image[top:bottom+1, left:right+1]
+    cropped_mask = mask[top:bottom+1, left:right+1]
+    class_map = class_map[top:bottom+1, left:right+1]
+    
+    return cropped_image, cropped_mask, class_map
+
 
 
 

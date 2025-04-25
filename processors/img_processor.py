@@ -116,6 +116,25 @@ class ImgProcessor():
 
         return input_image
     
+    def testing(
+        self, 
+        image
+    ):
+        image_np = np.array(image)
+        aug_image = cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB)
+
+        # augmentation
+        if self.macenko_nor:
+            aug_image = self.macenko_normalization(aug_image)
+        aug_image = transforms.ToPILImage()(aug_image)
+
+        # to tensor
+        input_image = self.pre_transform(aug_image).to(self.device)
+        if self.img_size is not None:
+            input_image = F.interpolate(input_image.unsqueeze(0), size=(self.img_size, self.img_size), mode='bicubic', align_corners=False).squeeze(0)
+
+        return input_image
+    
     @classmethod
     def from_config(cls, 
         cfg,

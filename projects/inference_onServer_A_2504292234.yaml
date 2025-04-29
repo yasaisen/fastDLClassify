@@ -39,7 +39,7 @@ process:
     LocalgGobal_ratio_thr: 0.50
 
 task:
-  root_path: ""
+  root_path: "/work/misaka13/R27_MVLM"
   
   split: "A"
 

@@ -53,19 +53,26 @@ class ConfigHandler:
         with open(self.log_save_path, "w") as file:
             # file.write(self.cfg + "\n")
             yaml.safe_dump(self.cfg, file, default_flow_style=False)
+            file.write("\n[")
 
         log_print(self.state_name, f"Saved config to {self.log_save_path}")
         log_print(self.state_name, f"...Done\n")
 
     def save_result(self, 
         result: Dict,
+        split: str = ',',
         print_log: bool = False,
     ):
         with open(self.log_save_path, "a") as f:
-            f.write(f"{result}\n")
+            f.write(f"{result}{split}\n")
 
         if print_log:
             log_print(self.state_name, f"Saved result to {self.log_save_path}")
+
+    def close_result(self, 
+        ):
+        with open(self.log_save_path, "a") as f:
+            f.write("]\n")
 
     def save_weight(self, 
         weight_dict: Dict, 
@@ -80,6 +87,21 @@ class ConfigHandler:
         )
 
         log_print(self.state_name, f"Saved weight to {file_save_path}")
+
+    def save_list2json(self,
+        meta_list: List[Dict[str, str]], 
+        save_filename: str = 'meta_list', 
+    ):
+        def convert(obj):
+            if isinstance(obj, np.integer):
+                return int(obj)
+            raise TypeError(f"Type {type(obj)} not serializable")
+
+        file_save_path = os.path.join(self.save_path, f'{self.nowtime}_{save_filename}.json')
+        with open(file_save_path, "w") as file:
+            json.dump(meta_list, file, indent=4, default=convert)
+
+        log_print(self.state_name, f"Saved list to {file_save_path}")
 
     @classmethod
     def get_cfg(

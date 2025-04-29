@@ -15,6 +15,7 @@ import matplotlib.patches as patches
 from matplotlib.colors import ListedColormap
 from skimage import morphology
 from skimage import segmentation, color, graph
+from typing import Tuple, List, Dict
 import cv2
 
 from ..common.utils import log_print, highlight, highlight_show
@@ -82,7 +83,7 @@ def calculate_window_positions(
     
     return window_positions
 
-def sliding_window_detection(
+def sliding_window_detection_(
     model: nn.Module, 
     image_path: str, 
     window_size:int =48, 
@@ -141,6 +142,69 @@ def sliding_window_detection(
                 segmentation_map[i, j] = final_class
                 confidence_map[i, j] = confidence
     
+    return image_np, segmentation_map, confidence_map, window_predictions
+
+def sliding_window_detection(
+    model: nn.Module,
+    image_path: str,
+    window_size: int = 48,
+    min_overlap: int = 24,
+    conf_thr: float = 0.5,
+    device: str = 'cuda'
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[Dict]]:
+    image = Image.open(image_path).convert('RGB')
+    image_np = np.array(image)
+    height, width, _ = image_np.shape
+    segmentation_map = np.zeros((height, width), dtype=np.uint8)
+    confidence_map   = np.zeros((height, width), dtype=np.float32)
+
+    transform = ImgProcessor(img_size=window_size, macenko_nor=False, device=device)
+    window_positions = calculate_window_positions(width, height, window_size, min_overlap)
+    model = model.to(device).eval()
+
+    tensors: List[torch.Tensor] = []
+    metas: List[Tuple[int,int,int,int]] = []
+    for x, y in window_positions:
+        end_x = min(x + window_size, width)
+        end_y = min(y + window_size, height)
+        actual_w = end_x - x
+        actual_h = end_y - y
+
+        win = image.crop((x, y, end_x, end_y))
+        if actual_w != window_size or actual_h != window_size:
+            win = win.resize((window_size, window_size))
+
+        t = transform.testing(win).unsqueeze(0).to(device)  # shape (1, C, H, W)
+        tensors.append(t)
+        metas.append((x, y, actual_w, actual_h))
+
+    if not tensors:
+        return image_np, segmentation_map, confidence_map, []
+
+    batch = torch.cat(tensors, dim=0)  # shape (N, C, H, W)
+    with torch.no_grad():
+        logits = model(batch)           # shape (N, num_classes)
+        probs  = torch.softmax(logits, dim=1)  # shape (N, num_classes)
+
+    window_predictions = []
+    for i, (x, y, w, h) in enumerate(metas):
+        prob = probs[i]
+        confidence, cls0 = prob.max(dim=0)
+        confidence = confidence.item()
+        predicted_class = cls0.item() + 1 if confidence >= conf_thr else 0
+
+        window_predictions.append({
+            'x': x, 'y': y,
+            'width': w, 'height': h,
+            'predicted_class': predicted_class,
+            'confidence': confidence
+        })
+
+        for yy in range(y, y + h):
+            for xx in range(x, x + w):
+                segmentation_map[yy, xx] = predicted_class
+                confidence_map[yy, xx]  = confidence
+
     return image_np, segmentation_map, confidence_map, window_predictions
 
 def visualize_results(
@@ -328,8 +392,6 @@ def mask_otherRect_byArea(
                 cv2.rectangle(result, (x, y), (x + w, y + h), color, -1)
     return result
 
-import numpy as np
-
 def remove_border(
     image:np.ndarray,
     mask:np.ndarray,
@@ -423,6 +485,10 @@ class imgCleaner():
         seg_map_v0 = get_bin_seg_map(
             seg_map=segmentation_map
         )
+        if np.array_equal(np.unique(seg_map_v0), [0]):
+            log_print(self.state_name, "Skipping all nan array")
+            return seg_map_v0
+        
         cropped_image_v1, cropped_mask_v1 = crop_binary_array(
             image_array=image_v0,
             binary_mask=seg_map_v0,

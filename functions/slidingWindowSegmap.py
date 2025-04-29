@@ -163,7 +163,7 @@ def sliding_window_detection(
     model = model.to(device).eval()
 
     tensors: List[torch.Tensor] = []
-    metas: List[Tuple[int,int,int,int]] = []
+    metas:    List[Tuple[int,int,int,int]] = []
     for x, y in window_positions:
         end_x = min(x + window_size, width)
         end_y = min(y + window_size, height)
@@ -174,17 +174,17 @@ def sliding_window_detection(
         if actual_w != window_size or actual_h != window_size:
             win = win.resize((window_size, window_size))
 
-        t = transform.testing(win).unsqueeze(0).to(device)  # shape (1, C, H, W)
+        t = transform.testing(win).unsqueeze(0).to(device)  # (1, C, H, W)
         tensors.append(t)
         metas.append((x, y, actual_w, actual_h))
 
     if not tensors:
         return image_np, segmentation_map, confidence_map, []
 
-    batch = torch.cat(tensors, dim=0)  # shape (N, C, H, W)
+    batch = torch.cat(tensors, dim=0)  # (N, C, H, W)
     with torch.no_grad():
-        logits = model(batch)           # shape (N, num_classes)
-        probs  = torch.softmax(logits, dim=1)  # shape (N, num_classes)
+        logits = model(batch)                # (N, num_classes)
+        probs  = torch.softmax(logits, dim=1)# (N, num_classes)
 
     window_predictions = []
     for i, (x, y, w, h) in enumerate(metas):
@@ -200,10 +200,8 @@ def sliding_window_detection(
             'confidence': confidence
         })
 
-        for yy in range(y, y + h):
-            for xx in range(x, x + w):
-                segmentation_map[yy, xx] = predicted_class
-                confidence_map[yy, xx]  = confidence
+        segmentation_map[y : y + h, x : x + w] = predicted_class
+        confidence_map  [y : y + h, x : x + w] = confidence
 
     return image_np, segmentation_map, confidence_map, window_predictions
 

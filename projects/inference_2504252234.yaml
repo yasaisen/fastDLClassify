@@ -1,15 +1,14 @@
   # Copyright (c) 2025, yasaisen(clover).
   # All rights reserved.
   # 
-  # last modified in 2504291540
+  # last modified in 2504252152
 
 model:
-  # model_path: "outputs/2504230120/2504230120_best_model.pth"
-  model_path: "/work/misaka13/R27_MVLM/outputs/2504230114/2504230114_best_model.pth"
+  model_path: "outputs/2504230120/2504230120_best_model.pth"
 
 dataset:
-  image_root: "/work/misaka13/cleanPCset_v1/quilt_1m/images"
-  mata_path: "/work/misaka13/R27_MVLM/quilt_1M_lookup.csv"
+  image_root: "/home/yasaisen/Desktop/27_research/research_datasets/cleanPCset_v1/quilt_1m/images"
+  mata_path: "/home/yasaisen/Desktop/27_research/research_datasets/cleanPCset_v1/quilt_1m/quilt_1M_lookup.csv"
 
 process: 
   sliding_window_detection: 
@@ -41,7 +40,7 @@ process:
 task:
   root_path: ""
   
-  split: "G"
+  split: "A"
 
   device: "cuda"
   output_path: "outputs"

@@ -41,6 +41,8 @@ process:
 task:
   root_path: ""
   
+  split: "A"
+
   device: "cuda"
   output_path: "outputs"
 
